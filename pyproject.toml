@@ -1,0 +1,61 @@
+[project]
+name = "noxa"
+version = "0.1.0"
+description = "Self-hosted web search and query answering for AI agents"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "ddgs>=9.0",
+    "crawl4ai>=0.7.0",
+    "rank-bm25>=0.2",
+    "sqlite-vec>=0.1.6",
+    "tiktoken>=0.8",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+ml-cpu = [
+    "onnxruntime>=1.19",
+    "fastembed>=0.4",
+    "llama-cpp-python>=0.3.0",
+    "huggingface-hub>=0.26",
+]
+ml-cuda = [
+    "sentence-transformers>=3.0",
+    "transformers>=4.46",
+    "torch>=2.0",
+    "accelerate>=1.0",
+    "huggingface-hub>=0.26",
+    "onnxruntime>=1.19",
+    "fastembed>=0.4",
+    "llama-cpp-python>=0.3.0",
+]
+ml = [
+    "sentence-transformers>=3.0",
+    "transformers>=4.46",
+    "torch>=2.0",
+    "accelerate>=1.0",
+    "huggingface-hub>=0.26",
+    "onnxruntime>=1.19",
+    "fastembed>=0.4",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+noxa = "noxa.app:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/noxa"]
