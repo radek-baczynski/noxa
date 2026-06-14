@@ -37,6 +37,38 @@ uv run noxa
 uv run uvicorn noxa.app:app --reload
 ```
 
+## Docker
+
+Pre-built images are published to [GitHub Container Registry](https://github.com/radek-baczynski/noxa/pkgs/container/noxa) on each release.
+
+| Image | Use case | Platforms |
+|-------|----------|-----------|
+| `ghcr.io/radek-baczynski/noxa:latest-cpu` | CPU inference | `linux/amd64`, `linux/arm64` |
+| `ghcr.io/radek-baczynski/noxa:latest-cuda` | NVIDIA GPU (CUDA) | `linux/amd64` |
+
+```bash
+# CPU
+docker run --rm -p 8000:8000 \
+  -e HF_TOKEN=hf_... \
+  -v noxa-data:/data \
+  ghcr.io/radek-baczynski/noxa:latest-cpu
+
+# CUDA (requires NVIDIA Container Toolkit)
+docker run --rm --gpus all -p 8000:8000 \
+  -e HF_TOKEN=hf_... \
+  -v noxa-data:/data \
+  ghcr.io/radek-baczynski/noxa:latest-cuda
+```
+
+Models and SQLite cache are stored under `/data` (`NOXA_MODEL_CACHE_DIR`, `NOXA_SQLITE_PATH`). The CPU image sets `NOXA_RUNTIME_PROFILE=cloud-cpu`; the CUDA image sets `cloud-gpu`.
+
+Build locally:
+
+```bash
+docker build -f docker/Dockerfile --target cpu -t noxa:cpu .
+docker build -f docker/Dockerfile --target cuda -t noxa:cuda .
+```
+
 ## Endpoints
 
 - `POST /web_search` — ddgs search
