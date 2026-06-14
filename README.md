@@ -10,7 +10,7 @@ uv sync --extra ml       # llama-cpp-python for answer, embed, and rerank
 crawl4ai-setup           # installs Playwright Chromium
 ```
 
-**ml**: `llama-cpp-python` + `huggingface-hub` — one process, no sidecars. Answer, embedding (`create_embedding`), and reranking all run through llama.cpp.
+**ml**: `llama-cpp-python` + `huggingface-hub` — one process, no sidecars. Answer, embedding, and reranking all run through llama.cpp on **GGUF** models (no PyTorch/transformers stack).
 
 **NVIDIA GPU**: rebuild llama.cpp with CUDA support:
 
@@ -105,7 +105,7 @@ NOXA_MODEL_CACHE_DIR=.noxa_models
 NOXA_PRELOAD_MODELS=true
 ```
 
-#### Auto-detect (backends chosen per platform)
+#### Auto-detect (profile chosen per platform)
 
 ```bash
 HF_TOKEN=hf_...
@@ -214,7 +214,7 @@ NOXA_MODEL_CACHE_DIR=.noxa_models
 NOXA_PRELOAD_MODELS=true
 ```
 
-#### Qwen3 + multilingual retrieval
+#### Qwen3 + explicit retrieval
 
 Same answer models + explicit retrieval pair: `nomic-ai/nomic-embed-text-v1.5-GGUF` + `Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp`.
 
@@ -224,8 +224,8 @@ NOXA_RUNTIME_PROFILE=mac-local
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-NOXA_RERANK_MODEL=jinaai/jina-reranker-v2-base-multilingual
+NOXA_EMBED_MODEL=nomic-ai/nomic-embed-text-v1.5-GGUF
+NOXA_RERANK_MODEL=Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp
 NOXA_MODEL_CACHE_DIR=.noxa_models
 NOXA_PRELOAD_MODELS=true
 ```
@@ -630,25 +630,9 @@ NOXA_MODEL_CACHE_DIR=.noxa_models
 NOXA_PRELOAD_MODELS=true
 ```
 
-#### English-fast retrieval (small models)
+#### Compact English retrieval (BGE GGUF)
 
-Answer: Qwen3 unsloth stack. Retrieval: `nomic-ai/nomic-embed-text-v1.5-GGUF` + `Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp`.
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
-NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=BAAI/bge-small-en-v1.5
-NOXA_RERANK_MODEL=BAAI/bge-reranker-base
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-#### Smallest retrieval (MiniLM)
-
-Answer: Qwen3 unsloth stack. Retrieval: `sentence-transformers/all-MiniLM-L6-v2` + `Xenova/ms-marco-MiniLM-L-6-v2` (fastest/smallest pair).
+Answer: Qwen3 unsloth stack. Retrieval: `BAAI/bge-small-en-v1.5-GGUF` + `Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp`.
 
 ```bash
 HF_TOKEN=hf_...
@@ -656,138 +640,8 @@ NOXA_RUNTIME_PROFILE=mac-local
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
-NOXA_RERANK_MODEL=Xenova/ms-marco-MiniLM-L-6-v2
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-#### Torch transformers (no GGUF)
-
-Needs `uv sync --extra ml`. Uses Hugging Face **transformers** model ids (not GGUF repos).
-
-**Qwen3**
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_MODEL_FAST=Qwen/Qwen3-0.6B
-NOXA_ANSWER_MODEL_DEFAULT=Qwen/Qwen3-1.7B
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-NOXA_RERANK_MODEL=jinaai/jina-reranker-v2-base-multilingual
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-**Phi-4 mini**
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_MODEL_FAST=microsoft/Phi-4-mini-instruct
-NOXA_ANSWER_MODEL_DEFAULT=microsoft/Phi-4-mini-instruct
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=BAAI/bge-small-en-v1.5
-NOXA_RERANK_MODEL=BAAI/bge-reranker-base
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-**Gemma 3 4B**
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_MODEL_FAST=google/gemma-3-1b-it
-NOXA_ANSWER_MODEL_DEFAULT=google/gemma-3-4b-it
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=BAAI/bge-small-en-v1.5
-NOXA_RERANK_MODEL=BAAI/bge-reranker-base
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-**Llama 3.2 3B**
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_MODEL_FAST=meta-llama/Llama-3.2-1B-Instruct
-NOXA_ANSWER_MODEL_DEFAULT=meta-llama/Llama-3.2-3B-Instruct
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=BAAI/bge-small-en-v1.5
-NOXA_RERANK_MODEL=BAAI/bge-reranker-base
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-**SmolLM2 1.7B**
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_MODEL_FAST=HuggingFaceTB/SmolLM2-360M-Instruct
-NOXA_ANSWER_MODEL_DEFAULT=HuggingFaceTB/SmolLM2-1.7B-Instruct
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
-NOXA_RERANK_MODEL=Xenova/ms-marco-MiniLM-L-6-v2
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-**SmolLM3 3B**
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_MODEL_FAST=HuggingFaceTB/SmolLM3-3B
-NOXA_ANSWER_MODEL_DEFAULT=HuggingFaceTB/SmolLM3-3B
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=BAAI/bge-small-en-v1.5
-NOXA_RERANK_MODEL=BAAI/bge-reranker-base
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-**Granite 4.1 3B**
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_MODEL_FAST=ibm-granite/granite-4.1-3b
-NOXA_ANSWER_MODEL_DEFAULT=ibm-granite/granite-4.1-3b
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=BAAI/bge-small-en-v1.5
-NOXA_RERANK_MODEL=BAAI/bge-reranker-base
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-**Granite 4.0 350m + 4.1 3B**
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_MODEL_FAST=ibm-granite/granite-4.0-350m
-NOXA_ANSWER_MODEL_DEFAULT=ibm-granite/granite-4.1-3b
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
-NOXA_RERANK_MODEL=Xenova/ms-marco-MiniLM-L-6-v2
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
-**Liquid LFM2.5 350m + 1.2B**
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_MODEL_FAST=LiquidAI/LFM2.5-350M
-NOXA_ANSWER_MODEL_DEFAULT=LiquidAI/LFM2.5-1.2B-Instruct
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=BAAI/bge-small-en-v1.5
-NOXA_RERANK_MODEL=BAAI/bge-reranker-base
+NOXA_EMBED_MODEL=BAAI/bge-small-en-v1.5-GGUF
+NOXA_RERANK_MODEL=Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp
 NOXA_MODEL_CACHE_DIR=.noxa_models
 NOXA_PRELOAD_MODELS=true
 ```
@@ -798,7 +652,7 @@ NOXA_PRELOAD_MODELS=true
 |----------|--------|---------|
 | `NOXA_RUNTIME_PROFILE` | `auto`, `mac-local`, `cloud-cpu`, `cloud-gpu` | Hardware profile for llama.cpp GPU offload defaults |
 
-All inference (answer, embed, rerank) uses **llama-cpp-python**.
+All inference (answer, embed, rerank) uses **llama-cpp-python** with **GGUF** Hugging Face repos only.
 
 ### Models
 
@@ -841,5 +695,3 @@ Benchmark answer backends:
 ```bash
 uv run python scripts/benchmark_answer.py --fixture dump/web_answer_* --output benchmark.csv
 ```
-
-See [prd.md](prd.md) for full specification.
