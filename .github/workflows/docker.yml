@@ -1,14 +1,20 @@
-name: Release
+name: Docker
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
+  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   packages: write
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 env:
   REGISTRY: ghcr.io
@@ -36,7 +42,9 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - uses: docker/login-action@v3
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -49,8 +57,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}}-${{ matrix.variant }}
             type=semver,pattern={{major}}.{{minor}}-${{ matrix.variant }}
-            type=raw,value=latest-${{ matrix.variant }},enable=${{ github.ref_type == 'tag' }}
-            type=sha,prefix=sha-,suffix=-${{ matrix.variant }}
+            type=raw,value=latest-${{ matrix.variant }},enable=${{ github.event_name != 'pull_request' }}
+            type=sha,prefix=sha-,suffix=-${{ matrix.variant }},enable=${{ github.event_name != 'pull_request' }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -58,7 +66,7 @@ jobs:
           file: docker/Dockerfile
           target: ${{ matrix.target }}
           platforms: ${{ matrix.platforms }}
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.variant }}
@@ -79,6 +87,8 @@ jobs:
     needs: build-and-push
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: softprops/action-gh-release@v2
         with:
