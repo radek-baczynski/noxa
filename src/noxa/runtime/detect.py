@@ -18,30 +18,13 @@ class RuntimeProfile(StrEnum):
     CLOUD_GPU = "cloud-gpu"
 
 
-class AnswerBackendKind(StrEnum):
-    LLAMA_CPP = "llama_cpp"
-    TORCH = "torch"
-
-
-class EmbedBackendKind(StrEnum):
-    ONNX = "onnx"
-    TORCH = "torch"
-
-
-class RerankBackendKind(StrEnum):
-    ONNX = "onnx"
-    TORCH = "torch"
-
-
 @dataclass
 class Capabilities:
     platform_system: str
     machine: str
     has_llama_cpp: bool
-    has_onnxruntime: bool
-    has_torch: bool
     has_cuda: bool
-    has_mps: bool
+    has_metal: bool
     cpu_count: int
 
 
@@ -54,38 +37,22 @@ class LlamaOffloadConfig:
 
 def probe_capabilities() -> Capabilities:
     has_llama_cpp = _can_import("llama_cpp")
-    has_onnxruntime = _can_import("onnxruntime")
-    has_torch = _can_import("torch")
     has_cuda = False
-    has_mps = False
-    if has_torch:
-        import torch
+    has_metal = False
+    if has_llama_cpp:
+        import llama_cpp
 
-        has_cuda = bool(torch.cuda.is_available())
-        has_mps = bool(getattr(torch.backends, "mps", None) and torch.mps.is_available())
+        info = llama_cpp.llama_print_system_info().decode("utf-8", errors="replace")
+        has_cuda = "CUDA" in info
+        has_metal = "Metal" in info or "MTL" in info
     return Capabilities(
         platform_system=platform.system(),
         machine=platform.machine().lower(),
         has_llama_cpp=has_llama_cpp,
-        has_onnxruntime=has_onnxruntime,
-        has_torch=has_torch,
         has_cuda=has_cuda,
-        has_mps=has_mps,
+        has_metal=has_metal,
         cpu_count=os.cpu_count() or 4,
     )
-
-
-def infer_device() -> str:
-    """Pick the best available PyTorch inference device."""
-    if not _can_import("torch"):
-        return "cpu"
-    import torch
-
-    if torch.backends.mps.is_available():
-        return "mps"
-    if torch.cuda.is_available():
-        return "cuda"
-    return "cpu"
 
 
 def resolve_profile(profile: str, caps: Capabilities) -> RuntimeProfile:
@@ -109,38 +76,11 @@ def llama_offload_config(caps: Capabilities, profile: RuntimeProfile) -> LlamaOf
     return LlamaOffloadConfig(n_gpu_layers=0, n_threads=threads)
 
 
-def pick_answer_backend(
-    requested: str,
-    caps: Capabilities,
-    profile: RuntimeProfile,
-) -> AnswerBackendKind:
-    if requested and requested != "auto":
-        return AnswerBackendKind(requested)
-    if caps.has_llama_cpp:
-        return AnswerBackendKind.LLAMA_CPP
-    if caps.has_torch:
-        return AnswerBackendKind.TORCH
-    raise RuntimeError("No answer backend available (install llama-cpp-python or torch)")
-
-
-def pick_embed_backend(requested: str, caps: Capabilities) -> EmbedBackendKind:
-    if requested and requested != "auto":
-        return EmbedBackendKind(requested)
-    if caps.has_onnxruntime:
-        return EmbedBackendKind.ONNX
-    if caps.has_torch:
-        return EmbedBackendKind.TORCH
-    raise RuntimeError("No embed backend available")
-
-
-def pick_rerank_backend(requested: str, caps: Capabilities) -> RerankBackendKind:
-    if requested and requested != "auto":
-        return RerankBackendKind(requested)
-    if caps.has_onnxruntime:
-        return RerankBackendKind.ONNX
-    if caps.has_torch:
-        return RerankBackendKind.TORCH
-    raise RuntimeError("No rerank backend available")
+def require_llama_cpp(caps: Capabilities) -> None:
+    if not caps.has_llama_cpp:
+        raise RuntimeError(
+            "llama-cpp-python is required. Run: uv sync --extra ml"
+        )
 
 
 def _can_import(module: str) -> bool:
@@ -149,26 +89,6 @@ def _can_import(module: str) -> bool:
         return True
     except ImportError:
         return False
-
-
-_TORCH_DEVICE_LABELS = {
-    "mps": "mps (Apple GPU)",
-    "cuda": "cuda (NVIDIA GPU)",
-    "cpu": "cpu",
-}
-
-
-def describe_torch_device(caps: Capabilities) -> str:
-    if not caps.has_torch:
-        return "cpu"
-    return _TORCH_DEVICE_LABELS.get(infer_device(), "cpu")
-
-
-def describe_onnx_device() -> str:
-    """fastembed/onnxruntime runs on CPU in Noxa today."""
-    if not _can_import("onnxruntime"):
-        return "cpu"
-    return "cpu (onnxruntime)"
 
 
 def describe_llama_device(
@@ -193,11 +113,8 @@ def describe_llama_device(
 @dataclass
 class InferenceDevicePlan:
     profile: RuntimeProfile
-    answer_backend: AnswerBackendKind
     answer_device: str
-    embed_backend: EmbedBackendKind
     embed_device: str
-    rerank_backend: RerankBackendKind
     rerank_device: str
 
 
@@ -205,30 +122,13 @@ def build_inference_device_plan(
     caps: Capabilities,
     selection: RuntimeSelection,
 ) -> InferenceDevicePlan:
-    if selection.answer_backend == AnswerBackendKind.TORCH:
-        answer_device = describe_torch_device(caps)
-    else:
-        offload = llama_offload_config(caps, selection.profile)
-        answer_device = describe_llama_device(caps, selection.profile, offload)
-
-    if selection.embed_backend == EmbedBackendKind.TORCH:
-        embed_device = describe_torch_device(caps)
-    else:
-        embed_device = describe_onnx_device()
-
-    if selection.rerank_backend == RerankBackendKind.TORCH:
-        rerank_device = describe_torch_device(caps)
-    else:
-        rerank_device = describe_onnx_device()
-
+    offload = llama_offload_config(caps, selection.profile)
+    device = describe_llama_device(caps, selection.profile, offload)
     return InferenceDevicePlan(
         profile=selection.profile,
-        answer_backend=selection.answer_backend,
-        answer_device=answer_device,
-        embed_backend=selection.embed_backend,
-        embed_device=embed_device,
-        rerank_backend=selection.rerank_backend,
-        rerank_device=rerank_device,
+        answer_device=device,
+        embed_device=device,
+        rerank_device=device,
     )
 
 
@@ -240,20 +140,8 @@ def log_inference_devices(
 ) -> InferenceDevicePlan:
     plan = build_inference_device_plan(caps, selection)
     log = logger or logging.getLogger("noxa.runtime")
-    log.info("Inference devices profile=%s", plan.profile.value)
-    log.info(
-        "  answer: %s (%s)",
-        plan.answer_device,
-        plan.answer_backend.value,
-    )
-    log.info(
-        "  embed:  %s (%s)",
-        plan.embed_device,
-        plan.embed_backend.value,
-    )
-    log.info(
-        "  rerank: %s (%s)",
-        plan.rerank_device,
-        plan.rerank_backend.value,
-    )
+    log.info("Inference devices profile=%s backend=llama_cpp", plan.profile.value)
+    log.info("  answer: %s", plan.answer_device)
+    log.info("  embed:  %s", plan.embed_device)
+    log.info("  rerank: %s", plan.rerank_device)
     return plan

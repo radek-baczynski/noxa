@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
+from noxa.config import AnswerSize
 from noxa.llm_perf import LlmPerfStats
 from noxa.schemas import Citation
 
@@ -17,6 +18,7 @@ class AnswerResult:
     confidence: str | None = None
     raw_response: str = ""
     model_prompt: str = ""
+    generation_params: dict[str, object] | None = None
     incomplete: bool = False
     backend: str = ""
     status: str | None = None
@@ -46,4 +48,5 @@ class AnswerBackend(Protocol):
         query: str,
         documents: list[dict[str, str]],
         max_output_tokens: int,
+        answer_size: AnswerSize = AnswerSize.MEDIUM,
     ) -> AnswerResult: ...

@@ -45,22 +45,3 @@ def perf_from_llama(llm: object, usage: dict[str, int] | None) -> LlmPerfStats:
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
     )
-
-
-def perf_from_torch(
-    *,
-    prompt_tokens: int,
-    completion_tokens: int,
-    total_ms: float,
-) -> LlmPerfStats:
-    """Torch generate() is not split; report overall decode throughput only."""
-    return LlmPerfStats(
-        prefill_ms=0.0,
-        prefill_tokens=prompt_tokens,
-        prefill_tps=0.0,
-        decode_ms=round(total_ms, 2),
-        decode_tokens=completion_tokens,
-        decode_tps=_tps(completion_tokens, total_ms),
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-    )

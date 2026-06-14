@@ -8,12 +8,20 @@ from typing import Any
 from noxa.model_stats import get_model_infer_stats
 from noxa.request_context import log_prefix
 
+from noxa.answer_contract import remap_citation_source_ids, select_documents_for_answer
 from noxa.answerer import Answerer
 from noxa.runtime.registry import RuntimeRegistry
 from noxa.chunker import chunk_pages
 from noxa.confidence import compute_confidence
-from noxa.config import RuntimeMode, Settings, resolve_mode_limits
+from noxa.config import (
+    AnswerSize,
+    RuntimeMode,
+    Settings,
+    resolve_answer_output_tokens,
+    resolve_mode_limits,
+)
 from noxa.debug_dump import (
+    write_rerank_exchange,
     DebugDumper,
     page_dict,
     passage_dict,
@@ -60,11 +68,20 @@ def _build_answer_documents_and_sources(
     documents: list[dict[str, str]] = []
     sources: list[AnswerSource] = []
     for source_id, sid in enumerate(source_order, start=1):
-        group = by_source[sid]
+        group = sorted(by_source[sid], key=lambda p: p.score, reverse=True)
         first = group[0]
-        combined = "\n\n".join(p.text for p in group)
+        # Feed the LLM only the best passage per source to avoid weaker sections
+        # (e.g. "What is X?") drowning out the passage that matches the query.
         title = first.title or "Source"
-        documents.append({"text": f"{title}: {combined}"})
+        header = f"{title} ({first.url})" if first.url else title
+        documents.append(
+            {
+                "text": f"{header}: {first.text}",
+                "source_id": source_id,
+                "title": title,
+                "url": first.url or "",
+            }
+        )
         sources.append(
             AnswerSource(
                 id=source_id,
@@ -174,6 +191,9 @@ class Pipeline:
             dumper.write_json("retrieval_embed.json", trace["embed"], stage="select")
             dumper.write_json("retrieval_merged.json", trace["merged"], stage="select")
             dumper.write_json("retrieval_reranked.json", trace["reranked"], stage="select")
+            rerank_files = write_rerank_exchange(
+                dumper, trace["rerank_exchange"], stage="select"
+            )
             dumper.write_json(
                 "selected_passages.json",
                 [selected_passage_dict(s) for s in selected],
@@ -191,6 +211,7 @@ class Pipeline:
                     "retrieval_embed.json",
                     "retrieval_merged.json",
                     "retrieval_reranked.json",
+                    *rerank_files,
                     "selected_passages.json",
                 ],
             )
@@ -246,7 +267,7 @@ class Pipeline:
             len(merged),
         )
         t0 = time.perf_counter()
-        reranked = await asyncio.to_thread(
+        reranked, rerank_exchange = await asyncio.to_thread(
             self.reranker.rerank,
             query,
             merged,
@@ -290,6 +311,7 @@ class Pipeline:
             "embed": [scored_passage_dict(x) for x in emb],
             "merged": [scored_passage_dict(x) for x in merged],
             "reranked": [scored_passage_dict(x) for x in reranked],
+            "rerank_exchange": rerank_exchange,
         }
         return selected, debug, trace
 
@@ -297,10 +319,12 @@ class Pipeline:
         self,
         query: str,
         mode: RuntimeMode = RuntimeMode.DEFAULT,
+        answer_size: AnswerSize = AnswerSize.MEDIUM,
         max_search_results: int | None = None,
         max_pages: int | None = None,
         return_sources: bool = True,
         return_debug: bool = False,
+        region: str | None = None,
     ) -> WebAnswerResponse:
         t_total = time.perf_counter()
         mode_cfg = self.settings.get_mode(mode)
@@ -309,17 +333,24 @@ class Pipeline:
         )
         timing = TimingMs()
 
+        max_output_tokens = resolve_answer_output_tokens(
+            mode_cfg.max_output_tokens,
+            answer_size,
+        )
         logger.info(
-            "%sweb_answer start query=%r mode=%s max_results=%d max_pages=%d",
+            "%sweb_answer start query=%r mode=%s answer_size=%s max_results=%d max_pages=%d",
             log_prefix(),
             query,
             mode,
+            answer_size,
             max_results,
             max_pages,
         )
 
+        backend = self.settings.ddgs_backend
+
         t0 = time.perf_counter()
-        skey = search_cache_key("ddgs", query, "wt-wt", max_results)
+        skey = search_cache_key("ddgs", query, region, max_results, backend)
         cached_search = await self.cache.get(skey)
         if cached_search:
             from noxa.schemas import SearchResultItem
@@ -329,13 +360,14 @@ class Pipeline:
                 for r in cached_search
             ]
             logger.info(
-                "%sweb_answer search cache_hit results=%d",
+                "%sweb_answer search cache_hit backend=%s results=%d",
                 log_prefix(),
+                backend or "auto",
                 len(search_results),
             )
         else:
-            logger.info("%sweb_answer search calling ddgs", log_prefix())
-            search_results = await self.search.search(query, max_results)
+            logger.info("%sweb_answer search calling ddgs backend=%s region=%s max_results=%d", log_prefix(), backend, region, max_results)
+            search_results = await self.search.search(query=query, max_results=max_results, region=region, backend=backend)
             await self.cache.set(
                 skey,
                 [r.model_dump() for r in search_results],
@@ -482,31 +514,38 @@ class Pipeline:
         )
 
         documents, sources = _build_answer_documents_and_sources(selected)
-        doc_chars = sum(len(d["text"]) for d in documents)
+        llm_documents, citation_source_ids = select_documents_for_answer(
+            query, documents
+        )
+        doc_chars = sum(len(str(d["text"])) for d in llm_documents)
         top_rerank_score = selected[0].score if selected else None
         answer_role = self.settings.answer_role_for_mode(mode)
         answerer = Answerer(self.registry, answer_role)
         backend = answerer.backend
         logger.info(
-            "%sweb_answer generate start role=%s backend=%s model=%s passages=%d doc_chars=%d max_output=%d",
+            "%sweb_answer generate start role=%s backend=%s model=%s "
+            "llm_docs=%d/%d doc_chars=%d max_output=%d",
             log_prefix(),
             answer_role,
             backend.backend_id,
             backend.model_id,
+            len(llm_documents),
             len(documents),
             doc_chars,
-            mode_cfg.max_output_tokens,
+            max_output_tokens,
         )
         t0 = time.perf_counter()
         answer_result = await asyncio.to_thread(
             answerer.answer,
             query,
-            documents,
-            mode_cfg.max_output_tokens,
+            llm_documents,
+            max_output_tokens,
+            answer_size,
         )
         answer_text = answer_result.answer
         abstained = answer_result.abstained
         citations = answer_result.citations
+        remap_citation_source_ids(citations, citation_source_ids)
         if answer_result.incomplete:
             logger.warning(
                 "%sweb_answer answer incomplete status=%r output may be truncated",
@@ -570,6 +609,7 @@ class Pipeline:
                 request={
                     "query": query,
                     "mode": mode,
+                    "answer_size": answer_size,
                     "max_search_results": max_results,
                     "max_pages": max_pages,
                     "return_sources": return_sources,
@@ -634,6 +674,9 @@ class Pipeline:
             dumper.write_json("retrieval_embed.json", trace["embed"], stage="select")
             dumper.write_json("retrieval_merged.json", trace["merged"], stage="select")
             dumper.write_json("retrieval_reranked.json", trace["reranked"], stage="select")
+            rerank_files = write_rerank_exchange(
+                dumper, trace["rerank_exchange"], stage="select"
+            )
             dumper.write_json(
                 "selected_passages.json",
                 [selected_passage_dict(s) for s in selected],
@@ -648,15 +691,33 @@ class Pipeline:
                     "retrieval_embed.json",
                     "retrieval_merged.json",
                     "retrieval_reranked.json",
+                    *rerank_files,
                     "selected_passages.json",
                 ],
             )
             dumper.write_json("answer_documents.json", documents, stage="answer")
+            llm_exchange: dict[str, object] = {
+                "query": query,
+                "answer_size": answer_size,
+                "max_output_tokens": max_output_tokens,
+                "backend": answer_result.backend,
+                "model": backend.model_id,
+                "role": answer_role,
+                "prompt": answer_result.model_prompt,
+                "response": answer_result.raw_response,
+                "documents_in_prompt": llm_documents,
+                "documents_all": documents,
+                "citation_source_ids": citation_source_ids,
+                "generation": answer_result.generation_params or {},
+            }
+            if answer_result.llm_perf:
+                llm_exchange["usage"] = answer_result.llm_perf.to_dict()
+            dumper.write_json("llm_exchange.json", llm_exchange, stage="answer")
             dumper.write_text(
-                "model_prompt.txt", answer_result.model_prompt, stage="answer"
+                "llm_prompt.txt", answer_result.model_prompt, stage="answer"
             )
             dumper.write_text(
-                "model_raw.txt", answer_result.raw_response, stage="answer"
+                "llm_response.txt", answer_result.raw_response, stage="answer"
             )
             parsed_payload: dict[str, object] = {
                 "answer": answer_result.answer,
@@ -679,8 +740,9 @@ class Pipeline:
                 notes=f"role={answer_role} backend={backend.backend_id} model={backend.model_id}",
                 files=[
                     "answer_documents.json",
-                    "model_prompt.txt",
-                    "model_raw.txt",
+                    "llm_exchange.json",
+                    "llm_prompt.txt",
+                    "llm_response.txt",
                     "model_parsed.json",
                 ],
             )

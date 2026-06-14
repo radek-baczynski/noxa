@@ -12,15 +12,23 @@ from noxa.retrieval.bm25 import bm25_search
 from noxa.retrieval.merge import merge_candidates
 from noxa.schemas import ExtractedPage, Passage, ScoredPassage
 from noxa.security import SSRFError, validate_public_url
-from noxa.search.ddgs import search_cache_key
+from noxa.search.ddgs import _resolve_text_engines, search_cache_key
 
 
 def test_llm_perf_tps_calculation() -> None:
-    from noxa.llm_perf import _tps, perf_from_torch
+    from noxa.llm_perf import LlmPerfStats, _tps
 
     assert _tps(100, 1000.0) == 100.0
     assert _tps(0, 1000.0) == 0.0
-    perf = perf_from_torch(prompt_tokens=50, completion_tokens=20, total_ms=400.0)
+    perf = LlmPerfStats(
+        prefill_ms=0.0,
+        prefill_tokens=50,
+        decode_ms=400.0,
+        decode_tokens=20,
+        decode_tps=_tps(20, 400.0),
+        prompt_tokens=50,
+        completion_tokens=20,
+    )
     assert perf.decode_tps == 50.0
     assert perf.prompt_tokens == 50
     assert perf.completion_tokens == 20
@@ -86,11 +94,23 @@ def test_proxy_rotator_round_robin() -> None:
     assert rotator.next() == "http://a:1"
 
 
+def test_resolve_text_engines_auto_and_explicit() -> None:
+    auto = _resolve_text_engines("auto")
+    assert "google" in auto
+    assert len(auto) >= 2
+    assert _resolve_text_engines("google,mojeek") == ["google", "mojeek"]
+    assert _resolve_text_engines("not-a-engine") == []
+
+
 def test_search_cache_key_stable() -> None:
     a = search_cache_key("ddgs", "query", "wt-wt", 8)
     b = search_cache_key("ddgs", "query", "wt-wt", 8)
     assert a == b
     assert a != search_cache_key("ddgs", "other", "wt-wt", 8)
+    assert a != search_cache_key("ddgs", "query", "wt-wt", 8, backend="bing")
+    assert search_cache_key("ddgs", "query", None, 8) == search_cache_key(
+        "ddgs", "query", "wt-wt", 8
+    )
 
 
 def test_chunk_pages_splits_text() -> None:
@@ -351,7 +371,34 @@ def test_build_answer_documents_aligns_source_ids() -> None:
     assert sources[1].id == 2
     assert len(sources[0].selected_passages) == 2
     assert "first passage" in documents[0]["text"]
-    assert "second passage" in documents[0]["text"]
+    assert "second passage" not in documents[0]["text"]
+
+
+def test_build_answer_documents_prefers_top_passage_for_llm_context() -> None:
+    from noxa.pipeline import _build_answer_documents_and_sources
+    from noxa.schemas import SelectedPassage
+
+    selected = [
+        SelectedPassage(
+            source_id="review",
+            url="https://example.com/review",
+            title="Poke Review",
+            passage_id="review#verdict",
+            text="Reviewers find Poke promising and useful, though not perfect.",
+            score=0.86,
+        ),
+        SelectedPassage(
+            source_id="review",
+            url="https://example.com/review",
+            title="Poke Review",
+            passage_id="review#what",
+            text="What is Poke? Poke is a proactive AI assistant.",
+            score=0.72,
+        ),
+    ]
+    documents, _sources = _build_answer_documents_and_sources(selected)
+    assert "Reviewers find Poke promising" in documents[0]["text"]
+    assert "What is Poke?" not in documents[0]["text"]
 
 
 def test_clean_page_markdown_strips_link_targets() -> None:
@@ -364,12 +411,42 @@ def test_clean_page_markdown_strips_link_targets() -> None:
     assert "Ask Question" in cleaned
 
 
-def test_infer_device_returns_torch_device_name() -> None:
-    pytest.importorskip("torch")
-    from noxa.ml_deps import infer_device
+def test_rerank_exchange_builds_input_and_output() -> None:
+    from noxa.retrieval.rerank import (
+        build_rerank_exchange,
+        rerank_input_text,
+        rerank_output_payload,
+    )
+    from noxa.schemas import Passage, ScoredPassage
 
-    device = infer_device()
-    assert device in {"mps", "cuda", "cpu"}
+    class _Backend:
+        backend_id = "llama_cpp"
+        model_id = "rerank.gguf"
+
+    passage = Passage(
+        passage_id="p1",
+        source_id="s1",
+        url="https://example.com",
+        title="Example",
+        text="Example passage text",
+        token_count=3,
+        start_char=0,
+        end_char=20,
+    )
+    cand = ScoredPassage(passage=passage, merged_score=0.5)
+    exchange = build_rerank_exchange(
+        "what is noxa?",
+        [cand],
+        [0.82],
+        _Backend(),
+        final_top_k=8,
+        max_per_url=2,
+    )
+    assert exchange["candidate_count"] == 1
+    assert exchange["pairs"][0]["score"] == 0.82
+    assert "<Query>: what is noxa?" in exchange["pairs"][0]["prompt"]
+    assert "Query: what is noxa?" in rerank_input_text(exchange)
+    assert rerank_output_payload(exchange)["scores"][0]["score"] == 0.82
 
 
 def test_resolve_mode_limits_uses_preset_when_null() -> None:

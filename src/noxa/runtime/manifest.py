@@ -10,27 +10,23 @@ from noxa.runtime.hf_resolve import gguf_artifact_from_repo
 DEFAULT_MODEL_MANIFEST: dict[str, dict[str, Any]] = {
     "answer_fast": {
         "model": "unsloth/Qwen3-0.6B-GGUF",
-        "torch_model": "Qwen/Qwen3-0.6B",
         "gguf_quant": "Q4_K_M",
     },
     "answer_default": {
         "model": "unsloth/Qwen3-1.7B-GGUF",
-        "torch_model": "Qwen/Qwen3-1.7B",
         "gguf_quant": "Q4_K_M",
     },
     "embed": {
-        "model": "intfloat/multilingual-e5-small",
+        "model": "nomic-ai/nomic-embed-text-v1.5-GGUF",
+        "gguf_quant": "Q4_K_M",
     },
     "rerank": {
-        "model": "Qwen/Qwen3-Reranker-0.6B",
+        "model": "Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp",
+        "gguf_quant": "Q4_K_M",
     },
 }
 
 MODEL_MANIFEST = DEFAULT_MODEL_MANIFEST
-
-
-def _is_gguf_repo(model_id: str) -> bool:
-    return "gguf" in model_id.lower()
 
 
 def effective_manifest(settings: Settings | None = None) -> dict[str, dict[str, Any]]:
@@ -40,15 +36,13 @@ def effective_manifest(settings: Settings | None = None) -> dict[str, dict[str, 
 
     if settings.answer_model_fast:
         manifest["answer_fast"]["model"] = settings.answer_model_fast
-        if not _is_gguf_repo(settings.answer_model_fast):
-            manifest["answer_fast"]["torch_model"] = settings.answer_model_fast
     if settings.answer_model_default:
         manifest["answer_default"]["model"] = settings.answer_model_default
-        if not _is_gguf_repo(settings.answer_model_default):
-            manifest["answer_default"]["torch_model"] = settings.answer_model_default
     if settings.answer_gguf_quant:
         manifest["answer_fast"]["gguf_quant"] = settings.answer_gguf_quant
         manifest["answer_default"]["gguf_quant"] = settings.answer_gguf_quant
+        manifest["embed"]["gguf_quant"] = settings.answer_gguf_quant
+        manifest["rerank"]["gguf_quant"] = settings.answer_gguf_quant
 
     if settings.embed_model:
         manifest["embed"]["model"] = settings.embed_model

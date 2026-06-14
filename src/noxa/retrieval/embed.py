@@ -10,7 +10,7 @@ from noxa.schemas import Passage, ScoredPassage
 
 
 def _cache_key(backend: EmbedBackend, kind: EmbedKind, text: str) -> str:
-    from noxa.runtime.embed_onnx import embedding_cache_key
+    from noxa.runtime.llama_common import embedding_cache_key
 
     return embedding_cache_key(backend.backend_id, backend.model_id, f"{kind}: {text}")
 

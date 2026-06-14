@@ -1,71 +1,23 @@
 from __future__ import annotations
 
 import time
-from functools import lru_cache
-from pathlib import Path
 
-from noxa.answer_contract import build_answer_prompt, parse_answer_json
+from noxa.answer_contract import (
+    ANSWER_JSON_SCHEMA,
+    build_answer_messages,
+    build_answer_prompt,
+    parse_answer_json,
+    validate_answer_grounding,
+)
+from noxa.config import AnswerSize, Settings
 from noxa.llm_perf import perf_from_llama
 from noxa.model_stats import get_model_infer_stats
 from noxa.model_timing import elapsed_ms, log_model, timed_model_op
 from noxa.runtime.detect import LlamaOffloadConfig
 from noxa.runtime.interfaces import AnswerResult
-from noxa.config import Settings
-from noxa.runtime.artifacts import GgufArtifact
+from noxa.runtime.llama_common import load_llama, offload_key
 from noxa.runtime.manifest import resolve_gguf_artifact
 from noxa.schemas import Citation
-
-
-@lru_cache(maxsize=4)
-def _load_llama(
-    repo_id: str,
-    filename: str,
-    offload_key: str,
-    cache_dir: str,
-    token: str | None,
-) -> tuple[object, str]:
-    from llama_cpp import Llama
-
-    artifact = GgufArtifact(repo_id=repo_id, filename=filename)
-    model_path = _resolve_gguf_path(artifact, Path(cache_dir), token=token)
-
-    parts = offload_key.split(",")
-    n_gpu_layers = int(parts[0])
-    n_threads = int(parts[1])
-    n_ctx = int(parts[2]) if len(parts) > 2 else 4096
-
-    log_model("load start", str(model_path), backend="llama_cpp", repo=repo_id)
-    t0 = time.perf_counter()
-    llm = Llama(
-        model_path=str(model_path),
-        n_ctx=n_ctx,
-        n_gpu_layers=n_gpu_layers,
-        n_threads=n_threads,
-        verbose=False,
-    )
-    log_model("load done", filename, elapsed_ms(t0), backend="llama_cpp")
-    return llm, filename
-
-
-def _resolve_gguf_path(
-    artifact: GgufArtifact,
-    cache_dir: Path,
-    *,
-    token: str | None = None,
-) -> Path:
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    local = cache_dir / artifact.filename
-    if local.exists():
-        return local
-    from huggingface_hub import hf_hub_download
-
-    downloaded = hf_hub_download(
-        repo_id=artifact.repo_id,
-        filename=artifact.filename,
-        local_dir=str(cache_dir),
-        token=token,
-    )
-    return Path(downloaded)
 
 
 class LlamaAnswerBackend:
@@ -89,14 +41,12 @@ class LlamaAnswerBackend:
         )
         self.model_id = self.artifact.filename
 
-    def _offload_key(self) -> str:
-        return f"{self.offload.n_gpu_layers},{self.offload.n_threads},{self.offload.n_ctx}"
-
     def generate(
         self,
         query: str,
         documents: list[dict[str, str]],
         max_output_tokens: int,
+        answer_size: AnswerSize = AnswerSize.MEDIUM,
     ) -> AnswerResult:
         t_total = time.perf_counter()
         log_model(
@@ -107,19 +57,40 @@ class LlamaAnswerBackend:
             repo=self.artifact.repo_id,
             docs=len(documents),
         )
-        llm, _ = _load_llama(
+        llm, _ = load_llama(
             self.artifact.repo_id,
             self.artifact.filename,
-            self._offload_key(),
+            offload_key(self.offload),
             self.model_cache_dir,
             self.hf_token,
+            "generate",
         )
-        prompt = build_answer_prompt(query, documents)
+        messages = build_answer_messages(query, documents, answer_size=answer_size)
+        prompt = build_answer_prompt(query, documents, answer_size=answer_size)
 
         import llama_cpp
 
         llama_cpp.llama_perf_context_reset(llm.ctx)  # type: ignore[attr-defined]
 
+        llama_params: dict[str, object] = {
+            "max_tokens": max_output_tokens,
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "repeat_penalty": 1.1,
+            "response_format": {
+                "type": "json_object",
+                "schema": ANSWER_JSON_SCHEMA,
+            },
+        }
+        generation_params: dict[str, object] = {
+            "answer_size": answer_size.value,
+            "json_schema": True,
+            "chat_completion": True,
+            "max_tokens": max_output_tokens,
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "repeat_penalty": 1.1,
+        }
         with timed_model_op(
             self.model_id,
             "infer generate",
@@ -128,12 +99,9 @@ class LlamaAnswerBackend:
             backend=self.backend_id,
             max_new_tokens=max_output_tokens,
         ):
-            out = llm.create_completion(
-                prompt=prompt,
-                max_tokens=max_output_tokens,
-                temperature=0.0,
-                top_p=1.0,
-                repeat_penalty=1.1,
+            out = llm.create_chat_completion(
+                messages=messages,
+                **llama_params,
             )
         llm_perf = perf_from_llama(llm, out.get("usage"))
         get_model_infer_stats().set_answer_llm(llm_perf)
@@ -148,8 +116,25 @@ class LlamaAnswerBackend:
             prompt_tokens=llm_perf.prompt_tokens,
             completion_tokens=llm_perf.completion_tokens,
         )
-        raw = out["choices"][0]["text"]
+        raw = out["choices"][0]["message"]["content"]
         parsed = parse_answer_json(raw)
+        if parsed["answer"] and not validate_answer_grounding(
+            parsed["answer"],
+            documents,
+            query=query,
+            answer_size=answer_size,
+        ):
+            log_model(
+                "infer grounding reject",
+                self.model_id,
+                backend=self.backend_id,
+            )
+            parsed = {
+                "answer": "",
+                "abstain": True,
+                "citations": [],
+                "confidence": "low",
+            }
         citations = [
             Citation(source_id=i, url=None, title=None, supports=None)
             for i in parsed["citations"]
@@ -161,6 +146,7 @@ class LlamaAnswerBackend:
             confidence=parsed["confidence"],
             raw_response=raw,
             model_prompt=prompt,
+            generation_params=generation_params,
             incomplete=not parsed["answer"] and not parsed["abstain"],
             backend=self.backend_id,
             llm_perf=llm_perf,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,6 +10,41 @@ class RuntimeMode(StrEnum):
     FAST = "fast"
     DEFAULT = "default"
     QUALITY = "quality"
+
+
+class AnswerSize(StrEnum):
+    SHORT = "short"
+    MEDIUM = "medium"
+    COMPREHENSIVE = "comprehensive"
+
+
+class AnswerSizeConfig(BaseModel):
+    max_output_scale: float
+    min_tokens: int | None = None
+    max_tokens: int | None = None
+    prompt_hint: str
+
+
+ANSWER_SIZE_PRESETS: dict[AnswerSize, AnswerSizeConfig] = {
+    AnswerSize.SHORT: AnswerSizeConfig(
+        max_output_scale=0.35,
+        min_tokens=256,
+        max_tokens=512,
+        prompt_hint="Keep the answer brief: 1-3 sentences.",
+    ),
+    AnswerSize.MEDIUM: AnswerSizeConfig(
+        max_output_scale=1.0,
+        prompt_hint="Give a balanced answer: one short paragraph.",
+    ),
+    AnswerSize.COMPREHENSIVE: AnswerSizeConfig(
+        max_output_scale=1.5,
+        min_tokens=1024,
+        max_tokens=4096,
+        prompt_hint=(
+            "Give a thorough answer covering the main points from multiple sources."
+        ),
+    ),
+}
 
 
 class SearchProvider(StrEnum):
@@ -74,8 +108,8 @@ MODE_PRESETS: dict[RuntimeMode, ModeConfig] = {
         max_output_tokens=1536,
     ),
     RuntimeMode.QUALITY: ModeConfig(
-        max_search_results=10,
-        max_pages=8,
+        max_search_results=30,
+        max_pages=20,
         max_depth=1,
         per_page_timeout_ms=10000,
         global_timeout_ms=45000,
@@ -84,12 +118,30 @@ MODE_PRESETS: dict[RuntimeMode, ModeConfig] = {
         bm25_top_k=100,
         embedding_top_k=100,
         merged_top_k=70,
-        rerank_final_top_k=10,
+        rerank_final_top_k=20,
         answer_model="answer_default",
         max_context_tokens=6000,
-        max_output_tokens=2048,
+        max_output_tokens=4096,
     ),
 }
+
+
+def resolve_answer_output_tokens(
+    mode_max_output_tokens: int,
+    answer_size: AnswerSize = AnswerSize.MEDIUM,
+) -> int:
+    """Scale mode output budget by requested answer size."""
+    preset = ANSWER_SIZE_PRESETS[answer_size]
+    tokens = int(mode_max_output_tokens * preset.max_output_scale)
+    if preset.min_tokens is not None:
+        tokens = max(tokens, preset.min_tokens)
+    if preset.max_tokens is not None:
+        tokens = min(tokens, preset.max_tokens)
+    return max(tokens, 128)
+
+
+def answer_size_prompt_hint(answer_size: AnswerSize = AnswerSize.MEDIUM) -> str:
+    return ANSWER_SIZE_PRESETS[answer_size].prompt_hint
 
 
 def resolve_mode_limits(
@@ -115,6 +167,7 @@ class Settings(BaseSettings):
     # Search
     search_provider: str = "ddgs"
     default_max_results: int = 8
+    ddgs_backend: str | None = None
 
     # Fetch / crawl
     per_page_timeout_ms: int = 8000
@@ -126,22 +179,19 @@ class Settings(BaseSettings):
     crawl_max_depth: int = 2
     crawl_include_external: bool = False
 
-    # Runtime backends (auto picks best available per platform)
+    # Runtime (llama-cpp-python for answer, embed, rerank)
     runtime_profile: str = "auto"
-    answer_backend: str = "auto"
-    embed_backend: str = "auto"
-    rerank_backend: str = "auto"
     model_cache_dir: str = ".noxa_models"
 
     # Model ids (optional; unset = built-in defaults)
-    # answer_model_* for llama_cpp: Hugging Face GGUF repo (e.g. unsloth/Qwen3-0.6B-GGUF)
+    # All models are Hugging Face GGUF repos (e.g. unsloth/Qwen3-0.6B-GGUF)
     answer_model_fast: str | None = None
     answer_model_default: str | None = None
     answer_gguf_quant: str = "Q4_K_M"
     embed_model: str | None = None
     rerank_model: str | None = None
 
-    embedding_dimensions: int = 384
+    embedding_dimensions: int = 768
     embedding_batch_size: int = 64
     rerank_max_per_url: int = 2
     preload_models: bool = True

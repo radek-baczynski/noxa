@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark answer backends across roles on a fixed query/passage set."""
+"""Benchmark llama.cpp answer backends across roles on a fixed query/passage set."""
 
 from __future__ import annotations
 
@@ -14,14 +14,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from noxa.config import get_settings
-from noxa.runtime.detect import (
-    AnswerBackendKind,
-    Capabilities,
-    RuntimeProfile,
-    llama_offload_config,
-    probe_capabilities,
-    resolve_profile,
-)
 from noxa.runtime.registry import RuntimeRegistry
 
 
@@ -41,16 +33,6 @@ def _load_fixture(path: Path) -> tuple[str, list[dict[str, str]]]:
     return query, documents
 
 
-def _registry_for_backend(
-    backend: str,
-    profile: str,
-) -> RuntimeRegistry:
-    settings = get_settings()
-    object.__setattr__(settings, "answer_backend", backend)
-    object.__setattr__(settings, "runtime_profile", profile)
-    return RuntimeRegistry.from_settings(settings)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark Noxa answer backends")
     parser.add_argument(
@@ -58,11 +40,6 @@ def main() -> None:
         type=Path,
         default=ROOT / "dump",
         help="Debug dump dir or JSON with query/documents",
-    )
-    parser.add_argument(
-        "--backends",
-        default="llama_cpp,torch",
-        help="Comma-separated answer backends",
     )
     parser.add_argument(
         "--roles",
@@ -78,53 +55,47 @@ def main() -> None:
         docs_file = fixture_path / "answer_documents.json"
         if not docs_file.exists():
             raise SystemExit(f"No answer_documents.json in {fixture_path}")
-        query_file = fixture_path / "meta.md"
-        query = "benchmark query"
         if (fixture_path / "request.json").exists():
             query = json.loads(
                 (fixture_path / "request.json").read_text(encoding="utf-8")
-            ).get("query", query)
+            ).get("query", "benchmark query")
+        else:
+            query = "benchmark query"
         documents = json.loads(docs_file.read_text(encoding="utf-8"))
     else:
         query, documents = _load_fixture(fixture_path)
 
-    caps = probe_capabilities()
-    profile = resolve_profile("auto", caps)
+    registry = RuntimeRegistry.from_settings(get_settings())
     rows: list[dict[str, object]] = []
 
-    for backend_name in args.backends.split(","):
-        backend_name = backend_name.strip()
-        if not backend_name:
+    for role in args.roles.split(","):
+        role = role.strip()
+        if not role:
             continue
-        registry = _registry_for_backend(backend_name, profile.value)
-        for role in args.roles.split(","):
-            role = role.strip()
-            if not role:
-                continue
-            answer_backend = registry.answer_for_role(role)
-            t0 = time.perf_counter()
-            result = answer_backend.generate(
-                query,
-                documents,
-                max_output_tokens=args.max_output_tokens,
-            )
-            elapsed = int((time.perf_counter() - t0) * 1000)
-            rows.append(
-                {
-                    "query": query,
-                    "backend": answer_backend.backend_id,
-                    "model": answer_backend.model_id,
-                    "role": role,
-                    "answer_ms": elapsed,
-                    "abstained": result.abstained,
-                    "citations": [c.source_id for c in result.citations],
-                    "answer_text": result.answer.replace("\n", " ")[:500],
-                }
-            )
-            print(
-                f"{backend_name}/{role}: {elapsed}ms abstained={result.abstained}",
-                file=sys.stderr,
-            )
+        answer_backend = registry.answer_for_role(role)
+        t0 = time.perf_counter()
+        result = answer_backend.generate(
+            query,
+            documents,
+            max_output_tokens=args.max_output_tokens,
+        )
+        elapsed = int((time.perf_counter() - t0) * 1000)
+        rows.append(
+            {
+                "query": query,
+                "backend": answer_backend.backend_id,
+                "model": answer_backend.model_id,
+                "role": role,
+                "answer_ms": elapsed,
+                "abstained": result.abstained,
+                "citations": [c.source_id for c in result.citations],
+                "answer_text": result.answer.replace("\n", " ")[:500],
+            }
+        )
+        print(
+            f"llama_cpp/{role}: {elapsed}ms abstained={result.abstained}",
+            file=sys.stderr,
+        )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", newline="", encoding="utf-8") as fh:

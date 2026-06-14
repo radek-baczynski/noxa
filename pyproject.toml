@@ -1,9 +1,11 @@
 [project]
 name = "noxa"
 version = "0.1.0"
-description = "Self-hosted web search and query answering for AI agents"
+description = "Self-hosted web search and query answering for AI agents — an open-source Exa alternative"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
+authors = [{ name = "Radek Baczynski" }]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -18,30 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ml-cpu = [
-    "onnxruntime>=1.19",
-    "fastembed>=0.4",
-    "llama-cpp-python>=0.3.0",
-    "huggingface-hub>=0.26",
-]
-ml-cuda = [
-    "sentence-transformers>=3.0",
-    "transformers>=4.46",
-    "torch>=2.0",
-    "accelerate>=1.0",
-    "huggingface-hub>=0.26",
-    "onnxruntime>=1.19",
-    "fastembed>=0.4",
-    "llama-cpp-python>=0.3.0",
-]
 ml = [
-    "sentence-transformers>=3.0",
-    "transformers>=4.46",
-    "torch>=2.0",
-    "accelerate>=1.0",
+    "llama-cpp-python>=0.3.0",
     "huggingface-hub>=0.26",
-    "onnxruntime>=1.19",
-    "fastembed>=0.4",
 ]
 dev = [
     "pytest>=8.0",

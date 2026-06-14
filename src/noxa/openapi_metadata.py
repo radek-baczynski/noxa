@@ -14,6 +14,8 @@ Self-hosted web search and query answering for AI agents.
 Use **Try it out** on each operation below to send requests from this page.
 
 Modes for `/content_select` and `/web_answer`: `fast`, `default`, `quality`.
+
+Answer size for `/web_answer`: `short`, `medium` (default), `comprehensive`.
 """
 
 OPENAPI_TAGS = [

@@ -267,16 +267,18 @@ async def content_select(req: ContentSelectRequest) -> ContentSelectResponse:
 async def web_answer(req: WebAnswerRequest) -> WebAnswerResponse:
     pipeline: Pipeline = app.state.pipeline
     logger.info(
-        "%s/web_answer query=%r mode=%s max_pages=%s",
+        "%s/web_answer query=%r mode=%s answer_size=%s max_pages=%s",
         log_prefix(),
         req.query,
         req.mode,
+        req.answer_size,
         req.max_pages,
     )
     try:
         return await pipeline.web_answer(
             req.query,
             mode=req.mode,
+            answer_size=req.answer_size,
             max_search_results=req.max_search_results,
             max_pages=req.max_pages,
             return_sources=req.return_sources,

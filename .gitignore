@@ -9,6 +9,15 @@ wheels/
 # Virtual environments
 .venv
 
+# Local benchmark harness (not shared)
+exa_bench/
+
+# Internal docs (not for public release)
+prd.md
+
+# Editor / IDE
+.cursor/
+
 # Local data
 noxa.db
 noxa.db-*

@@ -5,17 +5,13 @@ from dataclasses import dataclass, field
 
 from noxa.config import Settings
 from noxa.runtime.detect import (
-    AnswerBackendKind,
     Capabilities,
-    EmbedBackendKind,
-    RerankBackendKind,
+    LlamaOffloadConfig,
     RuntimeProfile,
     llama_offload_config,
     log_inference_devices,
-    pick_answer_backend,
-    pick_embed_backend,
-    pick_rerank_backend,
     probe_capabilities,
+    require_llama_cpp,
     resolve_profile,
 )
 from noxa.runtime.interfaces import AnswerBackend, EmbedBackend, RerankBackend
@@ -26,9 +22,6 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RuntimeSelection:
     profile: RuntimeProfile
-    answer_backend: AnswerBackendKind
-    embed_backend: EmbedBackendKind
-    rerank_backend: RerankBackendKind
 
 
 @dataclass
@@ -46,44 +39,30 @@ class RuntimeRegistry:
         return self._answer_cache[role]
 
     def _build_answer_backend(self, role: str) -> AnswerBackend:
-        kind = self.selection.answer_backend
-        settings = self.settings
-        if kind == AnswerBackendKind.LLAMA_CPP:
-            from noxa.runtime.answer_llama import LlamaAnswerBackend
+        from noxa.runtime.answer_llama import LlamaAnswerBackend
 
-            offload = llama_offload_config(self.capabilities, self.selection.profile)
-            return LlamaAnswerBackend(
-                role=role,
-                offload=offload,
-                model_cache_dir=settings.model_cache_dir,
-                hf_token=settings.hf_token,
-                settings=settings,
-            )
-        from noxa.runtime.answer_torch import TorchJsonAnswerBackend
-
-        return TorchJsonAnswerBackend(role=role, settings=settings)
+        offload = llama_offload_config(self.capabilities, self.selection.profile)
+        return LlamaAnswerBackend(
+            role=role,
+            offload=offload,
+            model_cache_dir=self.settings.model_cache_dir,
+            hf_token=self.settings.hf_token,
+            settings=self.settings,
+        )
 
     @classmethod
     def from_settings(cls, settings: Settings) -> RuntimeRegistry:
         caps = probe_capabilities()
+        require_llama_cpp(caps)
         profile = resolve_profile(settings.runtime_profile, caps)
-        selection = RuntimeSelection(
-            profile=profile,
-            answer_backend=pick_answer_backend(
-                settings.answer_backend, caps, profile
-            ),
-            embed_backend=pick_embed_backend(settings.embed_backend, caps),
-            rerank_backend=pick_rerank_backend(settings.rerank_backend, caps),
-        )
-        embed = cls._build_embed_backend(selection.embed_backend, settings)
-        rerank = cls._build_rerank_backend(selection.rerank_backend, settings)
+        selection = RuntimeSelection(profile=profile)
+        offload = llama_offload_config(caps, profile)
+        embed = cls._build_embed_backend(offload, settings)
+        rerank = cls._build_rerank_backend(offload, settings)
         logger.info(
-            "Runtime registry profile=%s answer=%s embed=%s/%s rerank=%s/%s",
+            "Runtime registry profile=%s backend=llama_cpp embed=%s rerank=%s",
             selection.profile.value,
-            selection.answer_backend.value,
-            selection.embed_backend.value,
             embed.model_id,
-            selection.rerank_backend.value,
             rerank.model_id,
         )
         log_inference_devices(caps, selection, logger=logger)
@@ -96,30 +75,30 @@ class RuntimeRegistry:
         )
 
     @staticmethod
-    def _build_embed_backend(kind: EmbedBackendKind, settings: Settings) -> EmbedBackend:
-        if kind == EmbedBackendKind.ONNX:
-            from noxa.runtime.embed_onnx import OnnxEmbedBackend
+    def _build_embed_backend(
+        offload: LlamaOffloadConfig,
+        settings: Settings,
+    ) -> EmbedBackend:
+        from noxa.runtime.embed_llama import LlamaEmbedBackend
 
-            return OnnxEmbedBackend(
-                batch_size=settings.embedding_batch_size,
-                settings=settings,
-            )
-        from noxa.runtime.embed_torch import TorchEmbedBackend
-
-        return TorchEmbedBackend(
+        return LlamaEmbedBackend(
+            offload=offload,
+            model_cache_dir=settings.model_cache_dir,
+            hf_token=settings.hf_token,
             batch_size=settings.embedding_batch_size,
             settings=settings,
         )
 
     @staticmethod
     def _build_rerank_backend(
-        kind: RerankBackendKind,
+        offload: LlamaOffloadConfig,
         settings: Settings,
     ) -> RerankBackend:
-        if kind == RerankBackendKind.ONNX:
-            from noxa.runtime.rerank_onnx import OnnxRerankBackend
+        from noxa.runtime.rerank_llama import LlamaRerankBackend
 
-            return OnnxRerankBackend(settings=settings)
-        from noxa.runtime.rerank_torch import TorchRerankBackend
-
-        return TorchRerankBackend(settings=settings)
+        return LlamaRerankBackend(
+            offload=offload,
+            model_cache_dir=settings.model_cache_dir,
+            hf_token=settings.hf_token,
+            settings=settings,
+        )

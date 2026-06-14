@@ -1,27 +1,24 @@
 # Noxa
 
-Self-hosted web search and query answering for AI agents.
+Self-hosted web search and query answering for AI agents — an open-source Exa alternative.
 
 ## Setup
 
 ```bash
 uv sync
-uv sync --extra ml-cpu   # default stack: ONNX embed/rerank + llama.cpp answer (Metal on Mac)
-uv sync --extra ml       # adds torch fallback answer + embed/rerank backends
+uv sync --extra ml       # llama-cpp-python for answer, embed, and rerank
 crawl4ai-setup           # installs Playwright Chromium
 ```
 
-**ml-cpu** (recommended): `onnxruntime`, `fastembed`, `llama-cpp-python` — one process, no sidecars.
+**ml**: `llama-cpp-python` + `huggingface-hub` — one process, no sidecars. Answer, embedding (`create_embedding`), and reranking all run through llama.cpp.
 
-**ml-cuda** (NVIDIA): install `ml-cuda` extra, then rebuild llama.cpp with CUDA:
+**NVIDIA GPU**: rebuild llama.cpp with CUDA support:
 
 ```bash
 CMAKE_ARGS="-DGGML_CUDA=on" uv pip install --force-reinstall --no-cache-dir llama-cpp-python
 ```
 
-**ml**: torch + transformers for fallback answer backends and torch embed/rerank.
-
-Models download to `.noxa_models/` (GGUF) and HuggingFace cache on first boot.
+Models download to `.noxa_models/` (GGUF) on first boot.
 
 Copy the example env and set your HuggingFace token (models download at startup):
 
@@ -56,9 +53,7 @@ Put settings in `.env` (see `.env.example`). Most vars use the `NOXA_` prefix; `
 
 Copy one full block into `.env` to test. Replace `hf_...` with your token (or use `hf auth login`).
 
-`NOXA_ANSWER_MODEL_*` is a Hugging Face **GGUF repo** when `NOXA_ANSWER_BACKEND=llama_cpp`. Noxa picks the `Q4_K_M` file from that repo. Leave `NOXA_EMBED_MODEL` / `NOXA_RERANK_MODEL` empty to auto-pick (onnx backends).
-
-Model presets below were verified with the Hugging Face Hub API (`hf auth whoami` → `radekb`) and `fastembed` supported-model lists.
+All models are Hugging Face **GGUF repos**. Noxa picks the `Q4_K_M` file from each repo. Leave `NOXA_EMBED_MODEL` / `NOXA_RERANK_MODEL` empty for built-in defaults (`nomic-embed-text-v1.5`, `Qwen3-Reranker-0.6B`).
 
 ---
 
@@ -69,9 +64,6 @@ Model presets below were verified with the Hugging Face Hub API (`hf auth whoami
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -86,9 +78,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=auto
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=
 NOXA_ANSWER_MODEL_DEFAULT=
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -100,31 +89,11 @@ NOXA_PRELOAD_MODELS=true
 
 Empty answer models → built-in defaults (`unsloth/Qwen3-0.6B-GGUF`, `unsloth/Qwen3-1.7B-GGUF`).
 
-#### Torch answer (`uv sync --extra ml`)
-
-```bash
-HF_TOKEN=hf_...
-NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
-NOXA_ANSWER_MODEL_FAST=Qwen/Qwen3-0.6B
-NOXA_ANSWER_MODEL_DEFAULT=Qwen/Qwen3-1.7B
-NOXA_ANSWER_GGUF_QUANT=Q4_K_M
-NOXA_EMBED_MODEL=
-NOXA_RERANK_MODEL=
-NOXA_MODEL_CACHE_DIR=.noxa_models
-NOXA_PRELOAD_MODELS=true
-```
-
 #### Cloud CPU (headless Linux, llama.cpp on CPU threads)
 
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=cloud-cpu
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -134,14 +103,11 @@ NOXA_MODEL_CACHE_DIR=.noxa_models
 NOXA_PRELOAD_MODELS=true
 ```
 
-#### Cloud GPU (NVIDIA; `uv sync --extra ml-cuda` + CUDA llama.cpp build)
+#### Cloud GPU (NVIDIA; CUDA llama.cpp build)
 
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=cloud-gpu
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -156,9 +122,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -172,7 +135,7 @@ NOXA_PRELOAD_MODELS=false
 
 ### Model presets (what to run — copy to test)
 
-All use `NOXA_RUNTIME_PROFILE=mac-local` + `llama_cpp` unless noted. Each repo was checked for a `Q4_K_M` `.gguf` file via the Hub API (`hf auth whoami` → `radekb`). Download counts from Hugging Face Hub (June 2026).
+All use `NOXA_RUNTIME_PROFILE=mac-local` + `llama_cpp` unless noted. Each repo was checked for a `Q4_K_M` `.gguf` file via the Hugging Face Hub API. Download counts from Hugging Face Hub (June 2026).
 
 | Family | Preset | Fast model | Default model |
 |--------|--------|------------|---------------|
@@ -210,9 +173,6 @@ Fast `unsloth/Qwen3-0.6B-GGUF` (~79k dl) + default `unsloth/Qwen3-1.7B-GGUF` (~2
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -224,14 +184,11 @@ NOXA_PRELOAD_MODELS=true
 
 #### Qwen3 + multilingual retrieval
 
-Same answer models + explicit fastembed pair: `paraphrase-multilingual-MiniLM-L12-v2` (384-dim) + `jinaai/jina-reranker-v2-base-multilingual`.
+Same answer models + explicit retrieval pair: `nomic-ai/nomic-embed-text-v1.5-GGUF` + `Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp`.
 
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -248,9 +205,6 @@ Fast `unsloth/Qwen3-0.6B-GGUF` + default `unsloth/Qwen3-4B-Instruct-2507-GGUF` (
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-4B-Instruct-2507-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -267,9 +221,6 @@ Fast `unsloth/Qwen3-0.6B-GGUF` + default `MaziyarPanahi/Qwen3-1.7B-GGUF` (~289k 
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=MaziyarPanahi/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -286,9 +237,6 @@ Newer Qwen line. Fast `unsloth/Qwen3.5-0.8B-GGUF` (~315k dl) + default `unsloth/
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3.5-0.8B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3.5-4B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -305,9 +253,6 @@ Stable prior-gen Qwen. Fast `Qwen/Qwen2.5-1.5B-Instruct-GGUF` (~254k dl) + defau
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=Qwen/Qwen2.5-1.5B-Instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=Qwen/Qwen2.5-3B-Instruct-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -324,9 +269,6 @@ Fast `unsloth/Phi-4-mini-instruct-GGUF` (~60k dl) + default `MaziyarPanahi/Phi-4
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Phi-4-mini-instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=MaziyarPanahi/Phi-4-mini-instruct-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -343,9 +285,6 @@ Fast `unsloth/gemma-4-E2B-it-GGUF` (~1.0M dl) + default `unsloth/gemma-4-E4B-it-
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/gemma-4-E2B-it-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/gemma-4-E4B-it-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -362,9 +301,6 @@ Fast `MaziyarPanahi/gemma-3-1b-it-GGUF` (~170k dl) + default `unsloth/gemma-3-4b
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=MaziyarPanahi/gemma-3-1b-it-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/gemma-3-4b-it-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -381,9 +317,6 @@ Both modes use `bartowski/gemma-2-2b-it-GGUF` (~327k dl). Smallest Gemma preset;
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=bartowski/gemma-2-2b-it-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=bartowski/gemma-2-2b-it-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -400,9 +333,6 @@ Fast `unsloth/SmolLM2-135M-Instruct-GGUF` (~62k dl) + default `bartowski/SmolLM2
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/SmolLM2-135M-Instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=bartowski/SmolLM2-1.7B-Instruct-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -419,9 +349,6 @@ SmolLM3 is **3B only** (multilingual, dual-mode reasoning). Both modes use `unsl
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/SmolLM3-3B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/SmolLM3-3B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -438,9 +365,6 @@ Fast `unsloth/SmolLM3-3B-GGUF` + default `unsloth/SmolLM3-3B-128K-GGUF` (~3k dl)
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/SmolLM3-3B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/SmolLM3-3B-128K-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -457,9 +381,6 @@ Fast `unsloth/SmolLM2-135M-Instruct-GGUF` (~62k dl) + default `unsloth/SmolLM3-3
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/SmolLM2-135M-Instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/SmolLM3-3B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -476,9 +397,6 @@ Latest IBM Granite instruct line; **explicitly tuned for RAG**. Both modes use `
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/granite-4.1-3b-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/granite-4.1-3b-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -495,9 +413,6 @@ Fast `unsloth/granite-4.1-3b-GGUF` (~10k dl) + default `unsloth/granite-4.1-8b-G
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/granite-4.1-3b-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/granite-4.1-8b-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -514,9 +429,6 @@ Fast `unsloth/granite-4.0-350m-GGUF` (~4k dl) + default `unsloth/granite-4.1-3b-
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/granite-4.0-350m-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/granite-4.1-3b-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -533,9 +445,6 @@ Fast `unsloth/granite-3.3-2b-instruct-GGUF` (~723 dl) + default `ibm-granite/gra
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/granite-3.3-2b-instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=ibm-granite/granite-3.3-8b-instruct-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -552,9 +461,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=LiquidAI/LFM2.5-1.2B-Instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=LiquidAI/LFM2.5-1.2B-Instruct-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -571,9 +477,6 @@ Fast `LiquidAI/LFM2.5-350M-GGUF` (~10k dl) + default `LiquidAI/LFM2.5-1.2B-Instr
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=LiquidAI/LFM2.5-350M-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=LiquidAI/LFM2.5-1.2B-Instruct-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -590,9 +493,6 @@ Fast `LiquidAI/LFM2.5-1.2B-Instruct-GGUF` + default `LiquidAI/LFM2.5-8B-A1B-GGUF
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=LiquidAI/LFM2.5-1.2B-Instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=LiquidAI/LFM2.5-8B-A1B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -609,9 +509,6 @@ Fast `LiquidAI/LFM2.5-350M-GGUF` + default `LiquidAI/LFM2.5-1.2B-Thinking-GGUF` 
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=LiquidAI/LFM2.5-350M-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=LiquidAI/LFM2.5-1.2B-Thinking-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -628,9 +525,6 @@ Fast `unsloth/Llama-3.2-1B-Instruct-GGUF` (~27k dl) + default `unsloth/Llama-3.2
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Llama-3.2-1B-Instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Llama-3.2-3B-Instruct-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -647,9 +541,6 @@ Both modes use `unsloth/Llama-3.2-3B-Instruct-GGUF` (~76k dl). Good A/B vs Qwen3
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Llama-3.2-3B-Instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Llama-3.2-3B-Instruct-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -666,9 +557,6 @@ Fast `unsloth/Llama-3.2-1B-Instruct-GGUF` + default `MaziyarPanahi/Meta-Llama-3.
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Llama-3.2-1B-Instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=MaziyarPanahi/Meta-Llama-3.1-8B-Instruct-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -685,9 +573,6 @@ Fast `unsloth/Llama-3.2-1B-Instruct-GGUF` + default `MaziyarPanahi/Mistral-7B-In
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Llama-3.2-1B-Instruct-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -704,9 +589,6 @@ Fast `unsloth/Qwen3-0.6B-GGUF` + default `bartowski/DeepSeek-R1-Distill-Qwen-7B-
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -718,14 +600,11 @@ NOXA_PRELOAD_MODELS=true
 
 #### English-fast retrieval (small models)
 
-Answer: Qwen3 unsloth stack. Retrieval: `BAAI/bge-small-en-v1.5` + `BAAI/bge-reranker-base` (smallest fastembed cross-encoder).
+Answer: Qwen3 unsloth stack. Retrieval: `nomic-ai/nomic-embed-text-v1.5-GGUF` + `Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp`.
 
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -742,9 +621,6 @@ Answer: Qwen3 unsloth stack. Retrieval: `sentence-transformers/all-MiniLM-L6-v2`
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=mac-local
-NOXA_ANSWER_BACKEND=llama_cpp
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=unsloth/Qwen3-0.6B-GGUF
 NOXA_ANSWER_MODEL_DEFAULT=unsloth/Qwen3-1.7B-GGUF
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -763,9 +639,6 @@ Needs `uv sync --extra ml`. Uses Hugging Face **transformers** model ids (not GG
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=Qwen/Qwen3-0.6B
 NOXA_ANSWER_MODEL_DEFAULT=Qwen/Qwen3-1.7B
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -780,9 +653,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=microsoft/Phi-4-mini-instruct
 NOXA_ANSWER_MODEL_DEFAULT=microsoft/Phi-4-mini-instruct
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -797,9 +667,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=google/gemma-3-1b-it
 NOXA_ANSWER_MODEL_DEFAULT=google/gemma-3-4b-it
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -814,9 +681,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=meta-llama/Llama-3.2-1B-Instruct
 NOXA_ANSWER_MODEL_DEFAULT=meta-llama/Llama-3.2-3B-Instruct
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -831,9 +695,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=HuggingFaceTB/SmolLM2-360M-Instruct
 NOXA_ANSWER_MODEL_DEFAULT=HuggingFaceTB/SmolLM2-1.7B-Instruct
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -848,9 +709,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=HuggingFaceTB/SmolLM3-3B
 NOXA_ANSWER_MODEL_DEFAULT=HuggingFaceTB/SmolLM3-3B
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -865,9 +723,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=ibm-granite/granite-4.1-3b
 NOXA_ANSWER_MODEL_DEFAULT=ibm-granite/granite-4.1-3b
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -882,9 +737,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=ibm-granite/granite-4.0-350m
 NOXA_ANSWER_MODEL_DEFAULT=ibm-granite/granite-4.1-3b
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -899,9 +751,6 @@ NOXA_PRELOAD_MODELS=true
 ```bash
 HF_TOKEN=hf_...
 NOXA_RUNTIME_PROFILE=auto
-NOXA_ANSWER_BACKEND=torch
-NOXA_EMBED_BACKEND=auto
-NOXA_RERANK_BACKEND=auto
 NOXA_ANSWER_MODEL_FAST=LiquidAI/LFM2.5-350M
 NOXA_ANSWER_MODEL_DEFAULT=LiquidAI/LFM2.5-1.2B-Instruct
 NOXA_ANSWER_GGUF_QUANT=Q4_K_M
@@ -911,24 +760,23 @@ NOXA_MODEL_CACHE_DIR=.noxa_models
 NOXA_PRELOAD_MODELS=true
 ```
 
-### Runtime backends
+### Runtime
 
 | Variable | Values | Meaning |
 |----------|--------|---------|
-| `NOXA_RUNTIME_PROFILE` | `auto`, `mac-local`, `cloud-cpu`, `cloud-gpu` | Hardware profile for offload defaults |
-| `NOXA_ANSWER_BACKEND` | `auto`, `llama_cpp`, `torch` | How the answer model runs |
-| `NOXA_EMBED_BACKEND` | `auto`, `onnx`, `torch` | Embedding runtime |
-| `NOXA_RERANK_BACKEND` | `auto`, `onnx`, `torch` | Reranker runtime |
+| `NOXA_RUNTIME_PROFILE` | `auto`, `mac-local`, `cloud-cpu`, `cloud-gpu` | Hardware profile for llama.cpp GPU offload defaults |
+
+All inference (answer, embed, rerank) uses **llama-cpp-python**.
 
 ### Models
 
 | Variable | Example | Notes |
 |----------|---------|-------|
-| `NOXA_ANSWER_MODEL_FAST` | `unsloth/Qwen3-0.6B-GGUF` | Fast mode; GGUF repo for `llama_cpp`, HF id for `torch` |
-| `NOXA_ANSWER_MODEL_DEFAULT` | `unsloth/Qwen3-1.7B-GGUF` | Default/quality mode |
-| `NOXA_ANSWER_GGUF_QUANT` | `Q4_K_M` | Quantization tag to pick from the GGUF repo |
-| `NOXA_EMBED_MODEL` | `intfloat/multilingual-e5-small` | Optional; unset = auto-pick when embed backend is `onnx` |
-| `NOXA_RERANK_MODEL` | `BAAI/bge-reranker-base` | Optional; unset = auto-pick when rerank backend is `onnx` |
+| `NOXA_ANSWER_MODEL_FAST` | `unsloth/Qwen3-0.6B-GGUF` | Fast mode GGUF repo |
+| `NOXA_ANSWER_MODEL_DEFAULT` | `unsloth/Qwen3-1.7B-GGUF` | Default/quality mode GGUF repo |
+| `NOXA_ANSWER_GGUF_QUANT` | `Q4_K_M` | Quantization tag to pick from each GGUF repo |
+| `NOXA_EMBED_MODEL` | `nomic-ai/nomic-embed-text-v1.5-GGUF` | Embedding GGUF repo (`create_embedding`) |
+| `NOXA_RERANK_MODEL` | `Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp` | Reranker GGUF repo (yes/no logit scoring) |
 
 Request `mode` (`fast` / `default` / `quality`) selects which answer model role is used — not a separate env var.
 

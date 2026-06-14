@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from noxa.config import RuntimeMode, SafeSearch, SearchProvider
+from noxa.config import AnswerSize, RuntimeMode, SafeSearch, SearchProvider
 
 
 class TimingMs(BaseModel):
@@ -240,6 +240,7 @@ class WebAnswerRequest(BaseModel):
                 {
                     "query": "What is Python asyncio?",
                     "mode": "default",
+                    "answer_size": "medium",
                     "return_sources": True,
                     "return_debug": True,
                 },
@@ -257,6 +258,7 @@ class WebAnswerRequest(BaseModel):
 
     query: str
     mode: RuntimeMode = RuntimeMode.DEFAULT
+    answer_size: AnswerSize = AnswerSize.MEDIUM
     search_provider: SearchProvider = SearchProvider.DDGS
     max_search_results: int | None = None
     max_pages: int | None = None

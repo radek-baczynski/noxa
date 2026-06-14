@@ -163,6 +163,30 @@ def selected_passage_dict(s: SelectedPassage) -> dict[str, Any]:
     return s.model_dump()
 
 
+def write_rerank_exchange(
+    dumper: "DebugDumper",
+    exchange: dict[str, Any],
+    *,
+    stage: str = "select",
+) -> list[str]:
+    """Write reranker prompts (input) and scores (output) for debugging."""
+    from noxa.retrieval.rerank import rerank_input_text, rerank_output_payload
+
+    files = [
+        "rerank_exchange.json",
+        "rerank_input.txt",
+        "rerank_output.json",
+    ]
+    dumper.write_json("rerank_exchange.json", exchange, stage=stage)
+    dumper.write_text("rerank_input.txt", rerank_input_text(exchange), stage=stage)
+    dumper.write_json(
+        "rerank_output.json",
+        rerank_output_payload(exchange),
+        stage=stage,
+    )
+    return files
+
+
 @dataclass
 class StageRecord:
     name: str
@@ -325,6 +349,16 @@ class DebugDumper:
         if model_infer:
             lines.append(
                 f"- [model_infer.json](./model_infer.json) — model-only infer time & calls"
+            )
+        if (self.dir / "rerank_exchange.json").exists():
+            lines.append(
+                f"- [rerank_exchange.json](./rerank_exchange.json) — reranker input/output"
+            )
+            lines.append(f"- [rerank_input.txt](./rerank_input.txt) — reranker prompts")
+            lines.append(f"- [rerank_output.json](./rerank_output.json) — reranker scores")
+        if (self.dir / "llm_exchange.json").exists():
+            lines.append(
+                f"- [llm_exchange.json](./llm_exchange.json) — answer LLM input/output"
             )
         lines.append("")
 

@@ -9,11 +9,11 @@ from pathlib import Path
 from noxa.config import Settings
 from noxa.ml_deps import MLDependencyError, require_ml
 from noxa.model_timing import elapsed_ms, log_model
-from noxa.runtime.detect import AnswerBackendKind, EmbedBackendKind, RerankBackendKind
-from noxa.runtime.manifest import resolve_artifact, resolve_gguf_artifact
+from noxa.runtime.manifest import resolve_gguf_artifact
 from noxa.runtime.registry import RuntimeRegistry
 
 logger = logging.getLogger(__name__)
+
 
 class ModelBootstrapError(RuntimeError):
     """Raised when required models cannot be downloaded or loaded at startup."""
@@ -63,39 +63,14 @@ def _download_gguf(
     )
 
 
-def _download_hf_repo(model_id: str, token: str | None) -> None:
-    from huggingface_hub import snapshot_download
-
-    log_model("download start", model_id)
-    t0 = time.perf_counter()
-    snapshot_download(repo_id=model_id, token=token)
-    log_model("download done", model_id, elapsed_ms(t0))
-
-
 def _download_for_registry(registry: RuntimeRegistry) -> None:
     settings = registry.settings
     token = settings.hf_token
     cache_dir = Path(settings.model_cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    selection = registry.selection
 
-    if selection.answer_backend == AnswerBackendKind.LLAMA_CPP:
-        for role in ("answer_fast", "answer_default"):
-            _download_gguf(role, cache_dir, token, settings)
-
-    if selection.answer_backend == AnswerBackendKind.TORCH:
-        for role in ("answer_fast", "answer_default"):
-            _download_hf_repo(resolve_artifact(role, "torch_model", settings), token)
-
-    if selection.embed_backend == EmbedBackendKind.ONNX:
-        _download_hf_repo(registry.embed.model_id, token)
-    elif selection.embed_backend == EmbedBackendKind.TORCH:
-        _download_hf_repo(resolve_artifact("embed", "model", settings), token)
-
-    if selection.rerank_backend == RerankBackendKind.ONNX:
-        _download_hf_repo(registry.rerank.model_id, token)
-    elif selection.rerank_backend == RerankBackendKind.TORCH:
-        _download_hf_repo(resolve_artifact("rerank", "model", settings), token)
+    for role in ("answer_fast", "answer_default", "embed", "rerank"):
+        _download_gguf(role, cache_dir, token, settings)
 
 
 def _warm_for_registry(registry: RuntimeRegistry) -> None:
@@ -156,7 +131,7 @@ async def bootstrap_models(settings: Settings, registry: RuntimeRegistry) -> Non
         require_ml()
     except MLDependencyError as exc:
         raise ModelBootstrapError(
-            "ML dependencies required for startup. Run: uv sync --extra ml-cpu"
+            "llama-cpp-python required for startup. Run: uv sync --extra ml"
         ) from exc
 
     try:
