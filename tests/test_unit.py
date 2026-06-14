@@ -467,8 +467,8 @@ def test_mode_presets_define_search_and_page_defaults() -> None:
     assert MODE_PRESETS[RuntimeMode.DEFAULT].max_search_results == 6
     assert MODE_PRESETS[RuntimeMode.DEFAULT].max_pages == 5
     assert MODE_PRESETS[RuntimeMode.DEFAULT].answer_model == "answer_default"
-    assert MODE_PRESETS[RuntimeMode.QUALITY].max_search_results == 10
-    assert MODE_PRESETS[RuntimeMode.QUALITY].max_pages == 8
+    assert MODE_PRESETS[RuntimeMode.QUALITY].max_search_results == 30
+    assert MODE_PRESETS[RuntimeMode.QUALITY].max_pages == 20
     assert MODE_PRESETS[RuntimeMode.QUALITY].answer_model == "answer_default"
 
 
