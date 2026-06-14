@@ -39,25 +39,27 @@ uv run uvicorn noxa.app:app --reload
 
 ## Docker
 
-Pre-built images are published to [GitHub Container Registry](https://github.com/radek-baczynski/noxa/pkgs/container/noxa) on each release.
+Pre-built images are published to [GitHub Container Registry](https://github.com/radek-baczynski/noxa/pkgs/container/noxa) via the manual **Release** workflow (Actions → Release → Run workflow on `main`).
 
 | Image | Use case | Platforms |
 |-------|----------|-----------|
-| `ghcr.io/radek-baczynski/noxa:latest-cpu` | CPU inference | `linux/amd64`, `linux/arm64` |
-| `ghcr.io/radek-baczynski/noxa:latest-cuda` | NVIDIA GPU (CUDA) | `linux/amd64` |
+| `ghcr.io/radek-baczynski/noxa:<version>-cpu` | CPU inference | `linux/amd64`, `linux/arm64` |
+| `ghcr.io/radek-baczynski/noxa:<version>-cuda` | NVIDIA GPU (CUDA) | `linux/amd64` |
+
+Optional `latest-cpu` / `latest-cuda` tags are updated when **Publish latest** is checked during release.
 
 ```bash
-# CPU
+# CPU (pin a released version)
 docker run --rm -p 8000:8000 \
   -e HF_TOKEN=hf_... \
   -v noxa-data:/data \
-  ghcr.io/radek-baczynski/noxa:latest-cpu
+  ghcr.io/radek-baczynski/noxa:0.1.0-cpu
 
 # CUDA (requires NVIDIA Container Toolkit)
 docker run --rm --gpus all -p 8000:8000 \
   -e HF_TOKEN=hf_... \
   -v noxa-data:/data \
-  ghcr.io/radek-baczynski/noxa:latest-cuda
+  ghcr.io/radek-baczynski/noxa:0.1.0-cuda
 ```
 
 Models and SQLite cache are stored under `/data` (`NOXA_MODEL_CACHE_DIR`, `NOXA_SQLITE_PATH`). The CPU image sets `NOXA_RUNTIME_PROFILE=cloud-cpu`; the CUDA image sets `cloud-gpu`.

@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Semver bump applied to the latest v* tag
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      publish_latest:
+        description: Also publish latest-cpu and latest-cuda tags
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare release from main
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure release runs on main
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "Run this workflow from the main branch (current: ${{ github.ref }})." >&2
+            exit 1
+          fi
+
+      - name: Compute next version
+        id: version
+        run: |
+          git fetch --tags --force
+          eval "$(python3 .github/scripts/next_version.py "${{ inputs.release_type }}")"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Next release: ${tag} (was ${previous})"
+
+      - name: Bump pyproject.toml version
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          version = "${{ steps.version.outputs.version }}"
+          path = Path("pyproject.toml")
+          text = path.read_text(encoding="utf-8")
+          updated, count = re.subn(
+              r'(?m)^version = "[^"]+"',
+              f'version = "{version}"',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("failed to update version in pyproject.toml")
+          path.write_text(updated, encoding="utf-8")
+          PY
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "Release ${{ steps.version.outputs.tag }} [skip ci]"
+          git push origin HEAD:main
+
+      - name: Create and push tag
+        run: |
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+  build-and-push:
+    name: Publish Docker images
+    needs: prepare
+    uses: ./.github/workflows/docker-build-reusable.yml
+    with:
+      push: true
+      version: ${{ needs.prepare.outputs.version }}
+      ref: ${{ needs.prepare.outputs.tag }}
+      publish_latest: ${{ inputs.publish_latest }}
+      make_public: true
+
+  github-release:
+    name: Create GitHub release
+    needs: [prepare, build-and-push]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ${{ needs.prepare.outputs.tag }}
+          generate_release_notes: true
+          body: |
+            ## Docker images
+
+            Images are published to [GitHub Container Registry](https://github.com/${{ github.repository }}/pkgs/container/noxa) and are **public**.
+
+            ### CPU (linux/amd64, linux/arm64)
+
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.version }}-cpu
+            docker run --rm -p 8000:8000 \
+              -e HF_TOKEN=hf_... \
+              -v noxa-data:/data \
+              ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.version }}-cpu
+            ```
+
+            ### CUDA (linux/amd64, requires NVIDIA Container Toolkit)
+
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.version }}-cuda
+            docker run --rm --gpus all -p 8000:8000 \
+              -e HF_TOKEN=hf_... \
+              -v noxa-data:/data \
+              ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.version }}-cuda
+            ```
+
+            ### Tags
+
+            | Variant | Tags |
+            |---------|------|
+            | CPU | `${{ needs.prepare.outputs.version }}-cpu` |
+            | CUDA | `${{ needs.prepare.outputs.version }}-cuda` |
+
+            When **publish latest** was enabled, `latest-cpu` and `latest-cuda` were also updated.
+
+            Set `NOXA_PRELOAD_MODELS=false` to skip model download on startup during smoke tests.
